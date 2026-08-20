@@ -20,17 +20,7 @@ public static class FileUtils
         {
             directoryInfo.Create();
         }
-        foreach (var directoryInfo2 in directoryInfo.GetDirectories())
-        {
-            try
-            {
-                Directory.Delete(directoryInfo2.FullName, true);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        // 已加载程序集仍可能需要从旧临时目录解析依赖，重载期间不能删除旧目录。
         var str = $"{DateTime.Now:yyyyMMdd_HHmmss_ffff}";
         var path = Path.Combine(directoryInfo.FullName, prefix + str);
         var directoryInfo3 = new DirectoryInfo(path);
@@ -189,7 +179,7 @@ public static class FileUtils
     {
         try
         {
-            var directories = Directory.GetDirectories(sourceDir, "*.*", SearchOption.AllDirectories);
+            var directories = Directory.GetDirectories(sourceDir, "*", SearchOption.AllDirectories);
             foreach (var text in directories)
             {
                 var str = text.Replace(sourceDir, "");
@@ -199,7 +189,7 @@ public static class FileUtils
                     Directory.CreateDirectory(path);
                 }
             }
-            var files = Directory.GetFiles(sourceDir, "*.*", SearchOption.AllDirectories);
+            var files = Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories);
             foreach (var text2 in files)
             {
                 var str2 = text2.Replace(sourceDir, "");

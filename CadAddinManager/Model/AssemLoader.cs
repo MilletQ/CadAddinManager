@@ -27,6 +27,7 @@ public class AssemLoader
     {
         tempFolder = string.Empty;
         refedFolders = new List<string>();
+        tempFolders = new List<string>();
         copiedFiles = new Dictionary<string, DateTime>();
     }
 
@@ -58,12 +59,25 @@ public class AssemLoader
 
     public void HookAssemblyResolve()
     {
+        if (assemblyResolveHooked)
+        {
+            // 将当前版本的解析器放到最后，优先使用本次重载生成的最新临时副本。
+            AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
+            AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
+            return;
+        }
+
         AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
+        assemblyResolveHooked = true;
     }
 
     public void UnhookAssemblyResolve()
     {
+        if (!assemblyResolveHooked)
+            return;
+
         AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
+        assemblyResolveHooked = false;
     }
 
     public Assembly LoadAddinsToTempFolder(string originalFilePath, bool parsingOnly)
@@ -75,18 +89,67 @@ public class AssemLoader
         }
         this.parsingOnly = parsingOnly;
         originalFolder = Path.GetDirectoryName(originalFilePath);
+        var assemblyFileInfo = new FileInfo(originalFilePath);
+        PrepareAssemblyForReload(originalFilePath, assemblyFileInfo);
         var stringBuilder = new StringBuilder(Path.GetFileNameWithoutExtension(originalFilePath));
         if (parsingOnly)  stringBuilder.Append("-Parsing-");
         else stringBuilder.Append("-Executing-");
         tempFolder = FileUtils.CreateTempFolder(stringBuilder.ToString());
+        tempFolders.Add(tempFolder);
         string fileAssemblyTemp = ResolveDuplicateMethod(originalFilePath);
 		refedFolders.Add(Path.GetDirectoryName(originalFilePath));
-		var assembly = CopyAndLoadAddin(fileAssemblyTemp, parsingOnly);
+		var assembly = CopyAndLoadAddin(fileAssemblyTemp, parsingOnly, copyAssemblyFolder: true);
         if (assembly == null || !IsAPIReferenced(assembly))
         {
             return null;
         }
+        lock (loadedAssemblyLock)
+        {
+            loadedAssemblies[Path.GetFullPath(originalFilePath)] = new LoadedAssemblyState
+            {
+                Assembly = assembly,
+                LastWriteTimeUtc = assemblyFileInfo.LastWriteTimeUtc,
+                Length = assemblyFileInfo.Length,
+            };
+        }
         return assembly;
+    }
+
+    private static void PrepareAssemblyForReload(string originalFilePath, FileInfo currentFileInfo)
+    {
+        LoadedAssemblyState previousState;
+        var assemblyPath = Path.GetFullPath(originalFilePath);
+        lock (loadedAssemblyLock)
+        {
+            if (!loadedAssemblies.TryGetValue(assemblyPath, out previousState))
+                return;
+            if (previousState.LastWriteTimeUtc == currentFileInfo.LastWriteTimeUtc &&
+                previousState.Length == currentFileInfo.Length)
+                return;
+        }
+
+        try
+        {
+            foreach (var type in previousState.Assembly.GetTypes())
+            {
+                var method = type.GetMethod(
+                    "BeforeReload",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                if (method == null)
+                    continue;
+
+                // 插件可通过这个约定清理 Ribbon 和事件，再加载新版本。
+                method.Invoke(null, null);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"插件重载前清理失败：{exception}");
+        }
     }
 
     private string ResolveDuplicateMethod(string originalFilePath)
@@ -243,7 +306,7 @@ public class AssemLoader
         if (value.Length >= 64) value = "Execute" + suffix;
         return value;
     }
-    private Assembly CopyAndLoadAddin(string srcFilePath, bool onlyCopyRelated)
+    private Assembly CopyAndLoadAddin(string srcFilePath, bool onlyCopyRelated, bool copyAssemblyFolder = false)
     {
         var text = string.Empty;
         if (!FileUtils.FileExistsInFolder(srcFilePath, tempFolder))
@@ -255,7 +318,15 @@ public class AssemLoader
             }
 
             var list = new List<FileInfo>();
-            text = FileUtils.CopyFileToFolder(srcFilePath, tempFolder, onlyCopyRelated, list);
+            if (copyAssemblyFolder)
+            {
+                FileUtils.CopyDirectory(originalFolder, tempFolder, list);
+                text = FileUtils.CopyFileToFolder(srcFilePath, tempFolder, true, list);
+            }
+            else
+            {
+                text = FileUtils.CopyFileToFolder(srcFilePath, tempFolder, onlyCopyRelated, list);
+            }
             if (string.IsNullOrEmpty(text))
             {
                 return null;
@@ -263,7 +334,7 @@ public class AssemLoader
 
             foreach (var fileInfo in list)
             {
-                copiedFiles.Add(fileInfo.FullName, fileInfo.LastWriteTime);
+                copiedFiles[fileInfo.FullName] = fileInfo.LastWriteTime;
             }
         }
 
@@ -276,7 +347,7 @@ public class AssemLoader
         try
         {
             Monitor.Enter(this);
-            //Agree this error to load depend event assembly, see https://github.com/chuongmep/RevitAddInManager/issues/7
+            // 使用独立副本加载，允许同一程序集名称的新版 DLL 在当前进程中重新加载。
             result = Assembly.LoadFile(filePath);
         }
         finally
@@ -358,13 +429,16 @@ public class AssemLoader
             var text = string.Empty;
             var strLength = assemName.IndexOf(',');
             var str = strLength == -1 ? assemName : assemName.Substring(0, strLength);
-            foreach (var str2 in array)
+            foreach (var folder in tempFolders.AsEnumerable().Reverse())
             {
-                text = tempFolder + "\\" + str + str2;
-
-                if (File.Exists(text))
+                foreach (var str2 in array)
                 {
-                    return text;
+                    text = folder + "\\" + str + str2;
+
+                    if (File.Exists(text))
+                    {
+                        return text;
+                    }
                 }
             }
         }
@@ -500,7 +574,24 @@ public class AssemLoader
 
     private readonly List<string> refedFolders;
 
+    private readonly List<string> tempFolders;
+
     private readonly Dictionary<string, DateTime> copiedFiles;
+
+    private static readonly object loadedAssemblyLock = new();
+
+    private static readonly Dictionary<string, LoadedAssemblyState> loadedAssemblies = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool assemblyResolveHooked;
+
+    private sealed class LoadedAssemblyState
+    {
+        public Assembly Assembly { get; set; }
+
+        public DateTime LastWriteTimeUtc { get; set; }
+
+        public long Length { get; set; }
+    }
 
     private bool parsingOnly;
 

@@ -77,10 +77,6 @@ public class AddinManager
         {
            Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage(e.ToString());
         }
-        finally
-        {
-            assemLoader.UnhookAssemblyResolve();
-        }
         if (list != null && list.Count > 0)
         {
             var addin = new Addin(filePath, list);

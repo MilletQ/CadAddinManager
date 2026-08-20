@@ -6,6 +6,7 @@
     <ImplicitUsings>true</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
     <TargetFramework>net48</TargetFramework>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
     <Configurations>Debug A21;Debug A22;Debug A23;Debug A24;Debug A25;Debug A26;Debug A27</Configurations>
     <Configurations>$(Configurations);Release A21;Release A22;Release A23;Release A24;Release A25;Release A26;Release A27</Configurations>
     <RootNamespace>CadAddinManager</RootNamespace>
@@ -148,6 +149,7 @@
       <ExcludeAssets>runtime </ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Mono.Cecil" Version="0.11.4"/>
+    <PackageReference Include="System.Resources.Extensions" Version="9.0.0"/>
   </ItemGroup>
   <PropertyGroup>
     <StartAction>Program</StartAction>

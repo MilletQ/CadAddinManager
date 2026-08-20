@@ -147,7 +147,6 @@ public sealed class AddinManagerBase
         }
         finally
         {
-            assemLoader.UnhookAssemblyResolve();
             assemLoader.CopyGeneratedFilesBack();
         }
     }

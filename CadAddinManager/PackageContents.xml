@@ -6,6 +6,22 @@
   <Components>
     <ComponentEntry AppName="CadAddinManager"
                     Version="1.0"
+                    ModuleName="./20/CadAddinManager.dll"
+                    AppDescription="Execute Assembly no need open again CAD Or Civil3D"
+                    LoadOnAutoCADStartup="True"
+                    LoadOnCommandInvocation="True"
+                    LoadOnRequest="True">
+      <Commands>
+        <Command Local="AddInManagerManual" Global="AddInManagerManual" />
+        <Command Local="AddInManagerFaceLess" Global="AddInManagerFaceLess" />
+        <Command Local="InitAddinManager" Global="InitAddinManager" LoadOnAutoCADStartup="True" StartupCommand="True" />
+      </Commands>
+    </ComponentEntry>
+    <RuntimeRequirements Platform="AutoCAD*" SeriesMin="R23.1" SeriesMax="R23.1"/>
+  </Components>
+  <Components>
+    <ComponentEntry AppName="CadAddinManager"
+                    Version="1.0"
                     ModuleName="./21/CadAddinManager.dll"
                     AppDescription="Execute Assembly no need open again CAD Or Civil3D"
                     LoadOnAutoCADStartup="True"
